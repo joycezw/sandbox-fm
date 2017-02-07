@@ -329,11 +329,13 @@ class Visualization():
         self.im_flow.set_data(self.lic)
 
         # Put in new white dots (to be plotted next time step)
-        for u, v in zip(np.random.random(4), np.random.random(4)):
+        n_dots = 10
+        dot_size = 3
+        for u, v in zip(np.random.random(n_dots), np.random.random(n_dots)):
             rgb = (1.0, 1.0, 1.0)
             # make sure outline has the same color
             # create a little dot
-            r, c = skimage.draw.circle(v * HEIGHT, u * WIDTH, 4,
+            r, c = skimage.draw.circle(v * HEIGHT, u * WIDTH, dot_size,
                                        shape=(HEIGHT, WIDTH))
             # Don't plot on (nearly) dry cells
             if (s1_img[int(v * HEIGHT), int(u * WIDTH)] - zk_img[int(v * HEIGHT), int(u * WIDTH)]) < 0.5:
