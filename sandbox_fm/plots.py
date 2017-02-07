@@ -187,23 +187,22 @@ class Visualization():
         zk_img = data['zk'][data['ravensburger_nodes']]
         mag_img = np.sqrt(ucx_img**2 + ucy_img**2)
 
-        # Plot scanned height
-        self.im_height = self.ax.imshow(
-            warped_height,
-            'jet',
-            #cmap=terrajet2,
- #           cmap=summer,
-            alpha=1,
-            vmin=data['z'][0],
-            vmax=data['z'][-1],
-            visible=False
-        )
-
         # plot satellite image background
         self.im_background = self.ax.imshow(
             self.background,
             extent=[0, 640, 480, 0]
         )
+
+        # Plot scanned height
+        self.im_height = self.ax.imshow(
+            np.ma.masked_greater_equal(warped_height, 0),
+            'jet',
+            alpha=1,
+            vmin=data['z'][0],
+            vmax=data['z'][-1],
+            visible=True
+        )
+
 
         # Plot waterdepth
         self.im_s1 = self.ax.imshow(
@@ -212,14 +211,14 @@ class Visualization():
             alpha=.3,
             vmin=0,
             vmax=3,
-            visible=True
+            visible=False
         )
         # self.fig.colorbar(self.im_s1)
         # self.im_s1.colorbar(self.im_s1, inline=1, fontsize=10)
 
         # Plot bed level
         self.im_zk = self.ax.imshow(
-            bl_img,
+            np.ma.masked_greater_equal(bl_img, 0),
             cmap=terrajet2,  # 'gist_earth',
             alpha=1,
             vmin=data['z'][0],
@@ -269,7 +268,10 @@ class Visualization():
         )
 
         # Update scanned height
-        self.im_height.set_data(warped_height)
+        warped_height_masked = np.ma.masked_greater_equal(warped_height, 0)
+        self.im_height.set_data(
+            warped_height_masked
+        )
 
         #############################################
         # Update model parameters
@@ -300,8 +302,9 @@ class Visualization():
         
         # Update raster plots
         self.im_s1.set_data(s1_img - bl_img)
-        self.im_zk.set_data(bl_img)
-        self.im_mag.set_data(mag_img)
+        bl_img_masked = np.ma.masked_greater_equal(bl_img, 0)
+        self.im_zk.set_data(bl_img_masked)
+        self.im_mag.set_data(np.ma.masked_array(mag_img, warped_height_masked.mask))
 
         #################################################
         # Compute liquid added to the model
