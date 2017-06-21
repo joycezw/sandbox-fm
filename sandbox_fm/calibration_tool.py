@@ -1,6 +1,7 @@
 import pathlib
 import json
 import logging
+import time
 
 import cv2
 import numpy as np
@@ -196,7 +197,7 @@ class Calibration(object):
 
         # save the current working directory
         self.curdir = pathlib.Path.cwd()
-        self.make_window()
+        self.make_windows()
         # get data from model
         update_delft3d_initial_vars(self.data, self.model)
         if self.path.exists():
@@ -204,6 +205,14 @@ class Calibration(object):
                 self.old_calibration = json.load(f)
         else:
             self.old_calibration = {}
+
+    def make_windows(self):
+        self.fig_live, self.ax_live = plt.subplots()
+        self.ax_live.set_title('live')
+        self.fig_model, self.ax_model = plt.subplots()
+        self.ax_model.set_title('model')
+        self.fig_result, self.ax_result = plt.subplots()
+        self.ax_result.set_title('result')
 
     def make_window(self):
         self.fig, self.axes = plt.subplots(2, 2)
@@ -335,19 +344,17 @@ class Calibration(object):
         return p
 
     def run(self):
-        fig, axes = self.fig, self.axes
-
         # get video and depth image
         video = next(self.videos)
         raw = next(self.raws)
 
         # show the depth and video in the left window
 
-        axes[0, 0].imshow(raw) #, cmap='jet', vmin=650, vmax=800)
-        axes[1, 0].imshow(raw)
+        self.ax_live.imshow(raw)
+
         # convert to array we can feed into opencv
         data = self.data
-        axes[0, 1].scatter(
+        self.ax_model.scatter(
             data['xk'].ravel(),
             data['yk'].ravel(),
             c=data['zk'].ravel(),
@@ -356,11 +363,11 @@ class Calibration(object):
         )
 
         img_points = self.old_calibration.get("img_points", 4)
-        img_poly = self.add_edit_polygon(axes[0, 0], points=img_points)
+        img_poly = self.add_edit_polygon(self.ax_live, points=img_points)
         model_points = self.old_calibration.get("model_points", 4)
-        model_poly = self.add_edit_polygon(axes[0, 1], points=model_points)
+        model_poly = self.add_edit_polygon(self.ax_model, points=model_points)
         height_points = self.old_calibration.get("height_points", 2)
-        height_poly = self.add_edit_polygon(axes[1, 0], points=2)
+        height_poly = self.add_edit_polygon(self.ax_live, points=2)
 
 
         # keep track of the selected points
@@ -374,43 +381,48 @@ class Calibration(object):
         pid = None
 
         # define the point selector
-        def picker(event):
-            if event.key == 'enter':
-                # stop listening we're done
-                self.img_points = list(zip(
-                    *img_poly.line.get_data()
-                ))
-                self.model_points = list(zip(
-                    *model_poly.line.get_data()
-                ))
-                self.height_points = list(zip(
-                    *height_poly.line.get_data()
-                ))
-                u0, v0 = (
-                    int(np.round(self.height_points[0][0])),
-                    int(np.round(self.height_points[0][1]))
-                )
-                u1, v1 = (
-                    int(np.round(self.height_points[1][0])),
-                    int(np.round(self.height_points[1][1]))
-                )
-                self.z_values = [
-                    raw[v0, u0],
-                    raw[v1, u1]
-                ]
-                # deep should be > undeep
-                if not self.z_values[0] > self.z_values[1]:
-                    logger.warn("I had to reverse your z points, please select lower value with the bottom left dot. Coordinates: %s, raw: %s.",
-                                self.height_points,
-                                self.z_values )
-                    self.z_values = list(reversed(self.z_values))
-                    self.height_points = list(reversed(self.height_points))
-
-                fig.canvas.mpl_disconnect(pid)
-                self.save()
-                self.show_result(axes[1, 1])
 
 
         plt.ion()
-        pid = fig.canvas.mpl_connect('key_press_event', picker)
-        plt.show(block=True)
+
+        def keys(event):
+            if event.key == 's':
+                self.save()
+
+        pid = self.fig_live.canvas.mpl_connect('key_press_event', keys)
+
+
+        plt.show(block=False)
+        time.sleep(10)
+        for raw, video in zip(self.raws, self.videos):
+            # stop listening we're done
+            self.img_points = list(zip(
+                *img_poly.line.get_data()
+            ))
+            self.model_points = list(zip(
+                *model_poly.line.get_data()
+            ))
+            self.height_points = list(zip(
+                *height_poly.line.get_data()
+            ))
+            u0, v0 = (
+                int(np.round(self.height_points[0][0])),
+                int(np.round(self.height_points[0][1]))
+            )
+            u1, v1 = (
+                int(np.round(self.height_points[1][0])),
+                int(np.round(self.height_points[1][1]))
+            )
+            self.z_values = [
+                raw[v0, u0],
+                raw[v1, u1]
+            ]
+            # deep should be > undeep
+            if not self.z_values[0] > self.z_values[1]:
+                logger.warn("I had to reverse your z points, please select lower value with the bottom left dot. Coordinates: %s, raw: %s.",
+                            self.height_points,
+                            self.z_values )
+                self.z_values = list(reversed(self.z_values))
+                self.height_points = list(reversed(self.height_points))
+
+            self.show_result(self.ax_result)
