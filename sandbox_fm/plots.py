@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 # import cmocean
 import scipy.interpolate
+from scipy.misc import imread
 import numpy as np
 import skimage.draw
 import sys
@@ -23,6 +24,11 @@ from .calibrate import (
 matplotlib.rcParams['toolbar'] = 'None'
 
 logger = logging.getLogger(__name__)
+
+# Create new waterdepth colormap
+from matplotlib.colors import LinearSegmentedColormap
+cmap_black_to_blue = LinearSegmentedColormap.from_list('mycmap', ['black', 'blue'])
+
 
 
 def warp_flow(img, flow):
@@ -44,10 +50,10 @@ def process_events(evt, data, model, vis):
         idx = np.logical_and(data['node_in_box'], data['node_in_img_bbox'])
         zk_copy = data['zk'].copy()
         zk_copy[idx] += compute_delta_zk(data, idx)
-        # replace the part that changed
-        print(np.where(idx))
+        # replace the part that changedb33
         for i in np.where(idx)[0]:
-            if data['zk'][i] != zk_copy[i]:
+            # if data['zk'][i] != zk_copy[i]:
+            if np.abs(data['zk'][i] - zk_copy[i]) > 0.5:
                 # TODO: bug in zk
                 model.set_var_slice('zk', [i + 1], [1], zk_copy[i:i + 1])
     if evt.key == 'r':  # Reset to original bed level
@@ -55,7 +61,7 @@ def process_events(evt, data, model, vis):
             if data['zk'][i] != data['zk_original'][i]:
                 model.set_var_slice('zk', [i + 1], [1],
                                     data['zk_original'][i:i + 1])
-    if evt.key == 'p':
+    if evt.key == 'p': # Photo in the water
         vis.lic[:, :, :3] = 1.0
         vis.lic[:, :, 3] = 0.0
         vis.lic = cv2.warpPerspective(
@@ -70,9 +76,29 @@ def process_events(evt, data, model, vis):
                 np.ones_like(vis.lic[:, :, 0])
             ])
 
+    if evt.key == 'i': # Image in the water
+        imagepath='/home/sandbox/src/sandbox-fm/tests/Waal_schematic/voordekunst_logo_640_480.jpg'
+        image=np.flipud(np.fliplr(imread(imagepath)))
+        vis.lic[:, :, :3] = 1.0
+        vis.lic[:, :, 3] = 0.0
+        vis.lic = cv2.warpPerspective(
+            image.astype('float32') / 255.0,
+            np.array(data['img2box']),
+            data['height'].shape[::-1]
+        )
+        if vis.lic.shape[-1] == 3:
+            # add depth channel
+            vis.lic = np.dstack([
+                vis.lic,
+                np.ones_like(vis.lic[:, :, 0])
+            ])
+    if evt.key == '-': # Remove all particles
+        vis.lic[:, :, 3] = 0.0
+
     if evt.key == 'c':
         vis.im_flow.set_visible(not vis.im_flow.get_visible())
     if evt.key == 'q':  # Quit (on windows)
+        plt.close("all")
         sys.exit()
     if evt.key == '1':  # Visualisation preset 1. Show bed level from camera
         vis.im_s1.set_visible(False)
@@ -89,7 +115,7 @@ def process_events(evt, data, model, vis):
         vis.im_height.set_visible(False)
         vis.im_zk.set_visible(True)
         vis.im_mag.set_visible(False)
-    if evt.key == '4':  # Visualisation preset . Show flow magnitude in model
+    if evt.key == '4':  # Visualisation preset 4. Show flow magnitude in model
         vis.im_s1.set_visible(False)
         vis.im_height.set_visible(False)
         vis.im_zk.set_visible(False)
@@ -193,11 +219,10 @@ class Visualization():
             warped_height,
             'jet',
             #cmap=terrajet2,
- #           cmap=summer,
             alpha=1,
             vmin=data['z'][0],
             vmax=data['z'][-1],
-            visible=False
+            visible=True
         )
 
         # plot satellite image background
@@ -210,11 +235,11 @@ class Visualization():
         # Plot waterdepth
         self.im_s1 = self.ax.imshow(
             (s1_img - bl_img),
-            cmap='Blues',
-            alpha=.3,
+            cmap=cmap_black_to_blue, # or 'Blues'
+            alpha=1, # or 0.3
             vmin=0,
-            vmax=3,
-            visible=True
+            vmax=1,
+            visible=False
         )
         # self.fig.colorbar(self.im_s1)
         # self.im_s1.colorbar(self.im_s1, inline=1, fontsize=10)
@@ -222,7 +247,8 @@ class Visualization():
         # Plot bed level
         self.im_zk = self.ax.imshow(
             bl_img,
-            cmap=terrajet2,  # 'gist_earth',
+            cmap = 'jet',
+            # cmap=terrajet2,  # 'gist_earth',
             alpha=1,
             vmin=data['z'][0],
             vmax=data['z'][-1],
@@ -232,7 +258,7 @@ class Visualization():
         # Plot flow magnitude
         self.im_mag = self.ax.imshow(
             mag_img,
-            'jet',
+            'inferno',
             alpha=1,
             vmin=0,
             visible=False
@@ -319,7 +345,7 @@ class Visualization():
             flow.astype('float32')
         )
         # fade out
-        # self.lic[..., 3] -= 0.01
+        self.lic[..., 3] -= 0.005
         # but not < 0
         self.lic[..., 3][self.lic[..., 3] < 0] = 0
         self.lic[..., 3][data['cell_mask']] = 0
@@ -342,8 +368,9 @@ class Visualization():
             self.lic[r, c, :] = tuple(rgb) + (1, )
 
         # Remove liquid on dry places
-        self.lic[bl_img >= s1_img, 3] = 0.0
-        self.lic[zk_img >= s1_img, 3] = 0.0
+        threshold = 0.40
+        self.lic[bl_img >= s1_img - threshold, 3] -= 0.05
+        # self.lic[zk_img >= s1_img - threshold, 3] -= 0.05
 
         #################################################
         # Draw updated canvas
@@ -355,6 +382,7 @@ class Visualization():
         # self.fig.canvas.blit(self.ax.bbox)
         # self.ax.redraw_in_frame()
         # interact with window and click events
+        pass
         try:
             self.fig.canvas.draw()
             self.fig.canvas.flush_events()
